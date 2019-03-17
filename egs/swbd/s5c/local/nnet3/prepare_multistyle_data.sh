@@ -5,8 +5,8 @@
 set -e
 stage=1
 train_stage=-10
-generate_alignments=true
-multi_style=true
+generate_alignments=false
+multi_style=false
 noise_list="reverb:music:noise:babble:clean"
 augment_test_set=false
 suffix=""
@@ -19,6 +19,10 @@ train_set=train_nodup
 mkdir -p exp/nnet3
 
 if [ -e data/rt03 ]; then maybe_rt03=rt03; else maybe_rt03= ; fi
+
+if [ "$multi_style" == "true" ]; then
+  suffix=_ms
+fi
 
 if [ "$multi_style" == "true" ]; then
   if [ $stage -le 1 ]; then
@@ -75,7 +79,7 @@ if [ "$multi_style" == "true" ]; then
         --bg-snrs "20:17:15:13" --num-bg-noises "3:4:5:6:7" --bg-noise-dir "data/musan_speech" \
         data/${x} data/${x}_babble
 
-      # Combine all the noise dirs
+      # Combine all the noise dirs (This part can be simplified once we know what noise types we will add)
       combine_str=""
       noise_list_parsed=`echo $noise_list | awk -F ":" '{for (i=1; i<=NF; i++) printf "%s ", $i}'`
       for n in $noise_list_parsed; do
@@ -86,12 +90,11 @@ if [ "$multi_style" == "true" ]; then
         fi
       done
       utils/combine_data.sh data/${x}_ms $combine_str
-      suffix="_ms"
     done
   fi
 
   if [ $stage -le 2 ] && $generate_alignments; then
-    # obtain the alignment of augmented data from clean data ()
+    # obtain the alignment of augmented data from clean data
     local/copy_ali_dir.sh --nj 40 --cmd "$train_cmd" \
       data/${train_set}_ms exp/${clean_ali} exp/${clean_ali}_ms
   fi
@@ -101,7 +104,7 @@ if [ $stage -le 3 ]; then
   mfccdir=mfcc_hires
   if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $mfccdir/storage ]; then
     date=$(date +'%m_%d_%H_%M')
-    utils/create_split_dir.pl /export/b0{1,2,3,4}/$USER/kaldi-data/mfcc/swbd-$date/s5b/$mfccdir/storage $mfccdir/storage
+    utils/create_split_dir.pl /export/b0{1,2,3,4}/$USER/kaldi-data/mfcc/swbd-$date/s5c/$mfccdir/storage $mfccdir/storage
   fi
 
   # the 100k_nodup directory is copied seperately, as
@@ -131,7 +134,13 @@ if [ $stage -le 3 ]; then
   done
 
   # Take the first 30k utterances (about 1/8th of the data) this will be used
-  # for the diagubm training
+  # for the diagubm training.
+  if [ "$multi_style" == "true" ]; then
+    # But since we train i-vector extractor on clean data we filter the clean data
+    utils/copy_data_dir.sh data/${train_set}${suffix}_hires data/${train_set}_hires
+    utils/filter_scp.pl data/${train_set}/utt2spk data/${train_set}${suffix}_hires/utt2spk > data/${train_set}_hires/utt2spk
+    utils/fix_data_dir.sh data/${train_set}_hires || exit 1;
+  fi
   utils/subset_data_dir.sh --first data/${train_set}_hires 30000 data/${train_set}_30k_hires
   utils/data/remove_dup_utts.sh 200 data/${train_set}_30k_hires data/${train_set}_30k_nodup_hires  # 33hr
 fi
