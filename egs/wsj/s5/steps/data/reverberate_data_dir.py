@@ -67,6 +67,9 @@ def get_args():
     parser.add_argument('--random-seed', type=int, default=0, help='seed to be used in the randomization of impulses and noises')
     parser.add_argument("--shift-output", type=str, help="If true, the reverberated waveform will be shifted by the amount of the peak position of the RIR",
                          choices=['true', 'false'], default = "true")
+    parser.add_argument("--normalize-output", type=str, help="If true, then after reverberating and possibly adding noise, "
+                                                            "scale so that the signal energy is the same as the original input signal",
+                         choices=['true', 'false'], default = "true")
     parser.add_argument('--source-sampling-rate', type=int, default=None,
                         help="Sampling rate of the source data. If a positive integer is specified with this option, "
                         "the RIRs/noises will be resampled to the rate of the source data.")
@@ -208,7 +211,8 @@ def add_point_source_noise(noise_addition_descriptor,  # descriptor to store the
                         foreground_snrs, # the SNR for adding the foreground noises
                         background_snrs, # the SNR for adding the background noises
                         speech_dur,  # duration of the recording
-                        max_noises_recording  # Maximum number of point-source noises that can be added
+                        max_noises_recording,  # Maximum number of point-source noises that can be added
+                        normalize_output
                         ):
     if len(pointsource_noise_list) > 0 and random.random() < pointsource_noise_addition_probability and max_noises_recording >= 1:
         for k in range(random.randint(1, max_noises_recording)):
@@ -218,11 +222,13 @@ def add_point_source_noise(noise_addition_descriptor,  # descriptor to store the
             # If it is a background noise, the noise will be extended and be added to the whole speech
             # if it is a foreground noise, the noise will not extended and be added at a random time of the speech
             if noise.bg_fg_type == "background":
-                noise_rvb_command = """wav-reverberate --impulse-response="{0}" --duration={1}""".format(noise_rir.rir_rspecifier, speech_dur)
+                noise_rvb_command = """wav-reverberate --impulse-response="{0}" --duration={1} --normalize-output={2}""".format(
+                                            noise_rir.rir_rspecifier, speech_dur, normalize_output)
                 noise_addition_descriptor['start_times'].append(0)
                 noise_addition_descriptor['snrs'].append(next(background_snrs))
             else:
-                noise_rvb_command = """wav-reverberate --impulse-response="{0}" """.format(noise_rir.rir_rspecifier)
+                noise_rvb_command = """wav-reverberate --normalize-output={1} --impulse-response="{0}" """.format(
+                                            noise_rir.rir_rspecifier, normalize_output)
                 noise_addition_descriptor['start_times'].append(round(random.random() * speech_dur, 2))
                 noise_addition_descriptor['snrs'].append(next(foreground_snrs))
 
@@ -244,7 +250,8 @@ def generate_reverberation_opts(room_dict,  # the room dictionary, please refer 
                               isotropic_noise_addition_probability, # Probability of adding isotropic noises
                               pointsource_noise_addition_probability, # Probability of adding point-source noises
                               speech_dur,  # duration of the recording
-                              max_noises_recording  # Maximum number of point-source noises that can be added
+                              max_noises_recording,  # Maximum number of point-source noises that can be added
+                              normalize_output  # Option to normalize output
                               ):
     """ This function randomly decides whether to reverberate, and sample a RIR if it does
         It also decides whether to add the appropriate noises
@@ -272,9 +279,11 @@ def generate_reverberation_opts(room_dict,  # the room dictionary, please refer 
         # extend the isotropic noise to the length of the speech waveform
         # check if the rspecifier is a pipe or not
         if len(isotropic_noise.noise_rspecifier.split()) == 1:
-            noise_addition_descriptor['noise_io'].append("wav-reverberate --duration={1} {0} - |".format(isotropic_noise.noise_rspecifier, speech_dur))
+            noise_addition_descriptor['noise_io'].append("wav-reverberate --normalize-output={2}, --duration={1} {0} - |".format(
+                                                        isotropic_noise.noise_rspecifier, speech_dur, normalize_output))
         else:
-            noise_addition_descriptor['noise_io'].append("{0} wav-reverberate --duration={1} - - |".format(isotropic_noise.noise_rspecifier, speech_dur))
+            noise_addition_descriptor['noise_io'].append("{0} wav-reverberate --normalize-output={2} --duration={1} - - |".format(
+                                                        isotropic_noise.noise_rspecifier, speech_dur, normalize_output))
         noise_addition_descriptor['start_times'].append(0)
         noise_addition_descriptor['snrs'].append(next(background_snrs))
 
@@ -285,7 +294,8 @@ def generate_reverberation_opts(room_dict,  # the room dictionary, please refer 
                                                     foreground_snrs, # the SNR for adding the foreground noises
                                                     background_snrs, # the SNR for adding the background noises
                                                     speech_dur,  # duration of the recording
-                                                    max_noises_recording  # Maximum number of point-source noises that can be added
+                                                    max_noises_recording,  # Maximum number of point-source noises that can be added
+                                                    normalize_output
                                                     )
 
     assert len(noise_addition_descriptor['noise_io']) == len(noise_addition_descriptor['start_times'])
@@ -323,6 +333,7 @@ def generate_reverberated_wav_scp(wav_scp,  # a dictionary whose values are the 
                                prefix, # prefix for the id of the corrupted utterances
                                speech_rvb_probability, # Probability of reverberating a speech signal
                                shift_output, # option whether to shift the output waveform
+                               normalize_output, # option whether to normalize output waveform
                                isotropic_noise_addition_probability, # Probability of adding isotropic noises
                                pointsource_noise_addition_probability, # Probability of adding point-source noises
                                max_noises_per_minute # maximum number of point-source noises that can be added to a recording according to its duration
@@ -359,14 +370,16 @@ def generate_reverberated_wav_scp(wav_scp,  # a dictionary whose values are the 
                                                          isotropic_noise_addition_probability, # Probability of adding isotropic noises
                                                          pointsource_noise_addition_probability, # Probability of adding point-source noises
                                                          speech_dur,  # duration of the recording
-                                                         max_noises_recording  # Maximum number of point-source noises that can be added
+                                                         max_noises_recording,  # Maximum number of point-source noises that can be added
+                                                         normalize_output
                                                          )
 
             # prefix using index 0 is reserved for original data e.g. rvb0_swb0035 corresponds to the swb0035 recording in original data
             if reverberate_opts == "" or i == 0:
                 wav_corrupted_pipe = "{0}".format(wav_original_pipe)
             else:
-                wav_corrupted_pipe = "{0} wav-reverberate --shift-output={1} {2} - - |".format(wav_original_pipe, shift_output, reverberate_opts)
+                wav_corrupted_pipe = "{0} wav-reverberate --normalize-output={1} --shift-output={2} {3} - - |".format(
+                                                    wav_original_pipe, normalize_output, shift_output, reverberate_opts)
 
             new_recording_id = get_new_id(recording_id, prefix, i)
             corrupted_wav_scp[new_recording_id] = wav_corrupted_pipe
@@ -408,6 +421,7 @@ def create_reverberated_copy(input_dir,
                            prefix, # prefix for the id of the corrupted utterances
                            speech_rvb_probability, # Probability of reverberating a speech signal
                            shift_output, # option whether to shift the output waveform
+                           normalize_output, # option whether to normalize the output or not
                            isotropic_noise_addition_probability, # Probability of adding isotropic noises
                            pointsource_noise_addition_probability, # Probability of adding point-source noises
                            max_noises_per_minute  # maximum number of point-source noises that can be added to a recording according to its duration
@@ -427,7 +441,7 @@ def create_reverberated_copy(input_dir,
 
     generate_reverberated_wav_scp(wav_scp, durations, output_dir, room_dict, pointsource_noise_list, iso_noise_dict,
                foreground_snr_array, background_snr_array, num_replicas, include_original, prefix,
-               speech_rvb_probability, shift_output, isotropic_noise_addition_probability,
+               speech_rvb_probability, shift_output, normalize_output, isotropic_noise_addition_probability,
                pointsource_noise_addition_probability, max_noises_per_minute)
 
     add_prefix_to_fields(input_dir + "/utt2spk", output_dir + "/utt2spk", num_replicas, include_original, prefix, field = [0,1])
@@ -666,6 +680,7 @@ def main():
                            prefix = args.prefix,
                            speech_rvb_probability = args.speech_rvb_probability,
                            shift_output = args.shift_output,
+                           normalize_output = args.normalize_output,
                            isotropic_noise_addition_probability = args.isotropic_noise_addition_probability,
                            pointsource_noise_addition_probability = args.pointsource_noise_addition_probability,
                            max_noises_per_minute = args.max_noises_per_minute)
