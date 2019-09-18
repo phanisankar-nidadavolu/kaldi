@@ -1300,6 +1300,7 @@ class XconfigSpecAugmentLayer(XconfigLayerBase):
     def set_default_configs(self):
         self.config = {'input': '[-1]',
                        'freq-max-proportion': 0.5,
+                       'freq-max-regions': 1,
                        'time-zeroed-proportion': 0.2,
                        'time-mask-max-frames': 20,
                        'include-in-init': False}
@@ -1308,7 +1309,7 @@ class XconfigSpecAugmentLayer(XconfigLayerBase):
     def check_configs(self):
         assert (self.config['freq-max-proportion'] > 0.0 and self.config['freq-max-proportion'] < 1.0
                 and self.config['time-zeroed-proportion'] > 0.0 and self.config['time-zeroed-proportion'] < 1.0
-                and self.config['time-mask-max-frames'] >= 1)
+                and self.config['time-mask-max-frames'] >= 1 and self.config['freq-max-regions'] > 0 and self.config['freq-max-regions']<3)
 
 
     def output_name(self, auxiliary_output=None):
@@ -1339,12 +1340,13 @@ class XconfigSpecAugmentLayer(XconfigLayerBase):
         input_desc = self.descriptors['input']['final-string']
         input_dim = self.descriptors['input']['dim']
         freq_max_proportion = self.config['freq-max-proportion']
+        freq_max_regions = self.config['freq-max-regions']
         time_zeroed_proportion = self.config['time-zeroed-proportion']
         time_mask_max_frames = self.config['time-mask-max-frames']
 
         configs = []
-        line = ('component name={0}.freq-mask type=GeneralDropoutComponent dim={1} specaugment-max-proportion={2}'.format(
-            self.name, input_dim, freq_max_proportion))
+        line = ('component name={0}.freq-mask type=GeneralDropoutComponent dim={1} specaugment-max-proportion={2} specaugment-max-regions={3}'.format(
+            self.name, input_dim, freq_max_proportion, freq_max_regions))
         configs.append(line)
         line = ('component-node name={0}.freq-mask component={0}.freq-mask input={1}'.format(
             self.name, input_desc))
